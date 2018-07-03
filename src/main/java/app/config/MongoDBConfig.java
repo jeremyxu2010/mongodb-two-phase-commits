@@ -23,7 +23,7 @@ public class MongoDBConfig implements InitializingBean, DisposableBean {
     @Value("${mongo.host:localhost}")
     private String mongoHost;
 
-    @Value("${mongo.port:17017}")
+    @Value("${mongo.port:27017}")
     private Integer mongoPort;
 
     @Value("${mongo.db:database}")
@@ -41,9 +41,9 @@ public class MongoDBConfig implements InitializingBean, DisposableBean {
 
     @Override
     public void afterPropertiesSet() throws Exception {
-        MongoDBRuntime runtime = MongoDBRuntime.getDefaultInstance();
-        mongodExe = runtime.prepare(new MongodConfig(Version.V2_2_0_RC0, mongoPort, Network.localhostIsIPv6()));
-        mongod = mongodExe.start();
+        //MongoDBRuntime runtime = MongoDBRuntime.getDefaultInstance();
+        //mongodExe = runtime.prepare(new MongodConfig(Version.V2_2_0_RC0, mongoPort, Network.localhostIsIPv6()));
+        //mongod = mongodExe.start();
 
         mongo = new MongoClient(mongoHost, mongoPort);
         mongo.setWriteConcern(WriteConcern.ACKNOWLEDGED);
