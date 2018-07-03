@@ -7,6 +7,8 @@ import app.domain.TransactionState;
 import app.service.AccountService;
 import app.service.TransactionService;
 import app.service.TransferService;
+import org.bson.BSONObject;
+import org.bson.types.ObjectId;
 import org.jongo.Jongo;
 import org.jongo.MongoCollection;
 import org.junit.After;
@@ -16,6 +18,8 @@ import org.junit.runner.RunWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
+
+import java.util.UUID;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -258,6 +262,62 @@ public class MongoDBTwoPhaseCommitsTest {
 
         Transaction finalTransaction = transactions.findOne().as(Transaction.class);
         assertThat(finalTransaction.getState(), is(TransactionState.CANCELED));
+    }
+
+    @Test
+    public void testNormalDemo() throws Exception {
+        // insert test data
+        accounts.insert(
+                "[" +
+                        "     { _id: \"A\", balance: 1000, pendingTransactions: [] },\n" +
+                        "     { _id: \"B\", balance: 1000, pendingTransactions: [] }\n" +
+                        "]"
+        );
+
+        String txId = ObjectId.get().toString();
+        try {
+            transactions.insert(
+                    "{ _id:#, source: \"A\", destination: \"B\", value: 100, state: #, lastModified: #}", txId, TransactionState.INITIAL, System.currentTimeMillis()
+            );
+            Transaction transaction = transactions.findOne("{_id:#}", new Object[]{txId}).as(Transaction.class);
+
+            transferService.transfer(transaction);
+
+            Account accountA = accounts.findOne("{_id: \"A\"}").as(Account.class);
+            assertThat(accountA.getBalance(), is(900));
+            assertThat(accountA.getPendingTransactions(), is(emptyArray()));
+
+            Account accountB = accounts.findOne("{_id: \"B\"}").as(Account.class);
+            assertThat(accountB.getBalance(), is(1100));
+            assertThat(accountB.getPendingTransactions(), is(emptyArray()));
+
+            Transaction finalTransaction = transactions.findOne().as(Transaction.class);
+            assertThat(finalTransaction.getState(), is(TransactionState.DONE));
+
+        } catch (Exception e){
+            Transaction transaction = transactions.findOne("{_id:#}", txId).as(Transaction.class);
+            if (transaction == null) {
+                System.err.printf("insert transaction failed, txId=%s\n", txId);
+            }
+            if (transaction.getState() == TransactionState.INITIAL){
+                System.err.printf("execute transaction failed, txId=%s, current transaction state is: %s, try to recover the transaction\n", txId, TransactionState.INITIAL.toString());
+                transferService.transfer(transaction);
+            } if (transaction.getState() == TransactionState.PENDING) {
+                // 这里可以选择是取消事务或者恢复事务
+                System.err.printf("execute transaction failed, txId=%s, current transaction state is: %s, try to cancel the transaction\n", txId, TransactionState.PENDING.toString());
+                transferService.cancelPending(transaction);
+                // System.err.printf("execute transaction failed, txId=%s, current transaction state is: %s, try to recover the transaction\n", txId, TransactionState.PENDING.toString());
+                // transferService.recoverPending(transaction);
+            } else if (transaction.getState() == TransactionState.APPLIED){
+                // 这里事务已经是APPLIED状态了，只差最后设置为DONE状态了，这里可以恢复事务
+                System.err.printf("execute transaction failed, txId=%s, current transaction state is: %s, try to recover the transaction\n", txId, TransactionState.APPLIED.toString());
+                transferService.recoverApplied(transaction);
+            } else if (transaction.getState() == TransactionState.CANCELING){
+                System.err.printf("execute transaction failed, txId=%s, current transaction state is: %s, try to cancel the transaction\n", txId, TransactionState.CANCELING.toString());
+                transferService.cancelPending(transaction);
+            }
+            // 另外可以在后台运行一个定时任务，将超期的上述四种状态事务按上述逻辑处理
+        }
     }
 
 }
